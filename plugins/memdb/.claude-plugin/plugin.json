@@ -1,0 +1,29 @@
+{
+  "name": "memdb",
+  "version": "1.0.0",
+  "description": "A searchable memory database (SQLite full-text search) for Claude: search/add/get/index tools, a /memdb command, and your memory files indexed automatically",
+  "author": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "python": {
+      "type": "string",
+      "title": "Python command",
+      "description": "Python 3.8+ command used to run bin/memdb.py (default python3)",
+      "default": "python3"
+    },
+    "dbPath": {
+      "type": "string",
+      "title": "Database path",
+      "description": "Where the database file lives. Empty = ~/.claude/memdb/memory.db (or $CLAUDE_CONFIG_DIR/memdb/memory.db)",
+      "default": ""
+    },
+    "promptNote": {
+      "type": "boolean",
+      "title": "Tell Claude about the tools",
+      "description": "Add a short note to the system prompt: search memdb before rereading long notes, store niche facts with memdb_add",
+      "default": true
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "build-trimmer",
+  "version": "1.0.0",
+  "description": "Trims long xcodebuild and swift build/test output to the errors, failing tests and summary, keeping the full log on disk",
+  "author": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "developerDir": {
+      "type": "string",
+      "title": "Xcode developer dir",
+      "description": "Optional DEVELOPER_DIR to build with, e.g. /Applications/Xcode-beta.app/Contents/Developer. Empty = off (use your default Xcode)",
+      "default": ""
+    },
+    "developerDirPathMatch": {
+      "type": "string",
+      "title": "Only when path contains",
+      "description": "Use the developer dir above only when the command or working folder contains this text (e.g. /MyApp). Empty = every build",
+      "default": ""
+    },
+    "extraBuildScripts": {
+      "type": "string",
+      "title": "Extra build scripts",
+      "description": "Comma-separated script names that run xcodebuild or swift test themselves, e.g. test.sh,ci/build.sh",
+      "default": ""
+    }
+  }
+}

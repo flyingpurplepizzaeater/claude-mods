@@ -1,0 +1,30 @@
+{
+  "name": "agent-dashboard",
+  "version": "1.0.0",
+  "description": "One Dashboard pane showing usage limits and context bars, the task list, test runs, running sessions and subagents (/dashboard brings it to the front)",
+  "author": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "planNote": {
+      "type": "boolean",
+      "title": "Plan multi-step requests",
+      "description": "Tell Claude to write long or multi-part requests into its task list first",
+      "default": true
+    },
+    "queueMessages": {
+      "type": "boolean",
+      "title": "Queue mid-turn messages",
+      "description": "A message sent while Claude is working is added to the end of its task list instead of derailing it (start it with !now to act on it right away)",
+      "default": true
+    },
+    "buildReminder": {
+      "type": "boolean",
+      "title": "Background build reminder",
+      "description": "Remind Claude to run long builds and tests in the background when it ran one in the foreground",
+      "default": false
+    }
+  }
+}

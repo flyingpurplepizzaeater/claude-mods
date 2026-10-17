@@ -1,0 +1,10 @@
+{
+  "name": "prompt-upgrade",
+  "version": "1.0.0",
+  "description": "/improve <rough prompt> rewrites it into a clear, specific prompt using the session's context and puts it in the prompt box for review",
+  "author": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

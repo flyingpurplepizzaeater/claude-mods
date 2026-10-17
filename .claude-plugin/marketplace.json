@@ -1,0 +1,34 @@
+{
+  "name": "claude-mods",
+  "owner": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, prompt upgrade and a searchable memory database",
+  "plugins": [
+    {
+      "name": "agent-dashboard",
+      "source": "./plugins/agent-dashboard",
+      "description": "One Dashboard pane with usage and context bars, the task list, test runs, running sessions and subagents (/dashboard)"
+    },
+    {
+      "name": "auto-handover",
+      "source": "./plugins/auto-handover",
+      "description": "/handover writes a handover note and starts (or proposes) a fresh session that continues from it"
+    },
+    {
+      "name": "build-trimmer",
+      "source": "./plugins/build-trimmer",
+      "description": "Trims long xcodebuild and swift build/test output to the errors and summary, keeping the full log on disk"
+    },
+    {
+      "name": "prompt-upgrade",
+      "source": "./plugins/prompt-upgrade",
+      "description": "/improve rewrites a rough prompt into a clear, specific one for review"
+    },
+    {
+      "name": "memdb",
+      "source": "./plugins/memdb",
+      "description": "A searchable memory database for Claude: search/add/get/index tools, a /memdb command, memory files indexed automatically"
+    }
+  ]
+}

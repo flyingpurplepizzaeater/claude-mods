@@ -1,0 +1,10 @@
+{
+  "name": "auto-handover",
+  "version": "1.0.0",
+  "description": "/handover writes a handover note and starts (or proposes) a fresh session that continues from it; optional automatic handover past a context threshold",
+  "author": {
+    "name": "flyingpurplepizzaeater"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
