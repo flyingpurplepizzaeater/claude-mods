@@ -1,11 +1,13 @@
 import { atom, read, update } from 'claude-code'
-import type { Engine, Register } from 'claude-code'
+import type { Engine, Register, SessionMessage } from 'claude-code'
 
 import { DEFAULT_THRESHOLD, fmtTokens, parseTokens, saveDir, saveName, transcript } from './save'
 
 // Set while this mod's own compaction is queued or running, so one turn asks once.
 const compacting = atom({ plugin: 'auto-compact', key: 'compacting' } as const, false)
 const lastSave = atom({ plugin: 'auto-compact', key: 'lastSave' } as const, '')
+// A compaction that met a running turn: tried again when the main loop's next turn ends.
+const pending = atom({ plugin: 'auto-compact', key: 'pending' } as const, '')
 
 const USAGE = '/autocompact [status | on | off | threshold <250k> | now]'
 
@@ -21,14 +23,53 @@ const isEnabled = async ($: Engine) => (await $.store.get('enabled')) !== false
 const getSaveDir = async ($: Engine) =>
   saveDir((await $.env.get('HOME').catch(() => undefined)) ?? '', await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined))
 
-async function compactNow($: Engine, why: string) {
-  await update($, compacting, () => true)
+const INSTRUCTIONS = 'Keep the current goal, decisions made, files changed and the next steps.'
+
+// Writes the conversation to compact-saves, owner-only. A failure is logged, never thrown.
+async function save($: Engine, messages: readonly SessionMessage[], trigger: string, instructions?: string): Promise<string | undefined> {
+  const [sessionId, cwd, now, use, dir] = await Promise.all([
+    $.session.id(),
+    $.session.cwd(),
+    $.clock.now(),
+    $.session.usage().catch(() => undefined),
+    getSaveDir($),
+  ])
+  // Ahead-of-time compute overwrites one file per session; a real compaction gets its own.
+  const name = trigger === 'precompute' ? `${sessionId}_precompute.md` : saveName(now, sessionId, trigger)
+  const path = `${dir}/${name}`
   try {
-    const r = await $.session.compact({ instructions: 'Keep the current goal, decisions made, files changed and the next steps.' })
+    // Owner-only: the folder 700 before the file lands, the file 600 after.
+    await $.process.run(['/bin/mkdir', '-p', '-m', '700', dir])
+    await $.process.run(['/bin/chmod', '700', dir])
+    await $.fs.write(path, transcript(messages, { sessionId, cwd, trigger, tokens: use?.context.tokens, now, instructions }))
+    await $.process.run(['/bin/chmod', '600', path])
+    if (trigger !== 'precompute') {
+      await update($, lastSave, () => path)
+      $.ui.log(`[auto-compact] saved ${messages.length} messages to ${path} before compacting`)
+    }
+    return path
+  } catch (err) {
+    $.ui.log(`[auto-compact] could not save before compacting: ${String(err)}`)
+    return undefined
+  }
+}
+
+// $.session.compact skips this plugin's own session.compact hook, so the save happens here first.
+async function compactNow($: Engine, why: string, retry = false) {
+  await update($, compacting, () => true)
+  let saved: string | undefined
+  try {
+    const messages = await $.session.messages().catch(() => [] as SessionMessage[])
+    if (messages.length) saved = await save($, messages, 'plugin', INSTRUCTIONS)
+    const r = await $.session.compact({ instructions: INSTRUCTIONS })
+    await update($, pending, () => '')
     if (r.skip !== undefined) $.ui.log(`[auto-compact] compaction skipped: ${r.skip}`)
     else $.ui.toast(`Compacted (${why}).`)
   } catch (err) {
-    $.ui.log(`[auto-compact] compaction failed: ${String(err)}`)
+    // Rejected while a turn runs: drop the save it never compacted, try again once when the next turn ends.
+    if (saved) await $.process.run(['/bin/rm', '-f', saved]).catch(() => undefined)
+    await update($, pending, () => (retry ? '' : why))
+    $.ui.log(`[auto-compact] compaction ${retry ? 'failed' : 'deferred until the turn ends'}: ${String(err)}`)
   } finally {
     await update($, compacting, () => false)
   }
@@ -47,7 +88,14 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId !== undefined || e.reason !== 'answer') return done
-    if ((await read($, compacting)) || !(await isEnabled($))) return done
+    if (await read($, compacting)) return done
+    const deferred = await read($, pending)
+    if (deferred) {
+      await update($, compacting, () => true)
+      $.clock.after(1500, () => compactNow($, deferred, true))
+      return done
+    }
+    if (!(await isEnabled($))) return done
     const tokens = (await $.session.usage().catch(() => undefined))?.context.tokens
     const limit = await getThreshold($)
     if (tokens === undefined || tokens < limit) return done
@@ -59,29 +107,7 @@ export const register: Register = on => {
   // Before any compaction of the main conversation (/compact, built-in auto, this mod): save it whole.
   on('session.compact', async ($, e, next) => {
     if (e.agentId !== undefined || !e.messages?.length) return next(e)
-    const [sessionId, cwd, now, use, dir] = await Promise.all([
-      $.session.id(),
-      $.session.cwd(),
-      $.clock.now(),
-      $.session.usage().catch(() => undefined),
-      getSaveDir($),
-    ])
-    // Ahead-of-time compute overwrites one file per session; a real compaction gets its own.
-    const name = e.trigger === 'precompute' ? `${sessionId}_precompute.md` : saveName(now, sessionId, e.trigger)
-    const path = `${dir}/${name}`
-    try {
-      // Owner-only: the folder 700 before the file lands, the file 600 after.
-      await $.process.run(['/bin/mkdir', '-p', '-m', '700', dir])
-      await $.process.run(['/bin/chmod', '700', dir])
-      await $.fs.write(path, transcript(e.messages, { sessionId, cwd, trigger: e.trigger, tokens: use?.context.tokens, now, instructions: e.instructions }))
-      await $.process.run(['/bin/chmod', '600', path])
-      if (e.trigger !== 'precompute') {
-        await update($, lastSave, () => path)
-        $.ui.log(`[auto-compact] saved ${e.messages.length} messages to ${path} before compacting`)
-      }
-    } catch (err) {
-      $.ui.log(`[auto-compact] could not save before compacting: ${String(err)}`)
-    }
+    await save($, e.messages, e.trigger, e.instructions)
     return next(e)
   }).catch(($, e, next) => next(e)) // a failed save never blocks the compaction
 

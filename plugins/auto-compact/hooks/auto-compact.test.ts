@@ -22,8 +22,15 @@ function world(on: On, tokens: number) {
   on('process.run', (_$, e: any) => { seen.runs.push(e.argv ?? e.command ?? e.args ?? e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as never })
   on('ui.toast', () => ({ value: undefined }) as never)
   on('turn.complete', (_$, e: any) => ({ text: e.answer }) as never)
-  on('session.compact', () => { seen.compacts += 1; return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } as never })
-  return { clock, seen }
+  on('session.messages', () => ({ value: MESSAGES }) as never)
+  // busy: how many compactions to reject as if a turn were running.
+  const state = { busy: 0 }
+  on('session.compact', () => {
+    if (state.busy > 0) { state.busy -= 1; throw new Error('a turn is running') }
+    seen.compacts += 1
+    return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } as never
+  })
+  return { clock, seen, state }
 }
 
 const endTurn = ($: any) => $.turn.complete({ answer: 'ok', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' })
@@ -90,4 +97,47 @@ test('transcript renders messages and tool calls', () => {
   expect(md).toMatch(/Trigger: auto at 251k tokens/)
   expect(md).toMatch(/## 1\. user\n\nFix the export/)
   expect(md).toMatch(/\*\*Read\*\* `\{"file_path":"\/x.ts"\}`\n> const x = 1/)
+})
+
+test('its own compaction (past the threshold) saves the transcript first', async ($, on) => {
+  const { clock, seen } = world(on, 260_000)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(seen.compacts).toBe(1)
+  const save = seen.writes.find(w => w.path.includes('/compact-saves/'))
+  expect(save?.path).toMatch(/_abcdef12_plugin\.md$/)
+  expect(save?.text).toMatch(/Fix the export/)
+})
+
+test('/autocompact now saves and compacts', async ($, on) => {
+  const { clock, seen } = world(on, 50_000)
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  expect(seen.compacts).toBe(1)
+  expect(seen.writes.filter(w => w.path.includes('/compact-saves/')).length).toBe(1)
+})
+
+test('a compaction that meets a running turn runs after the next turn, without a stray save', async ($, on) => {
+  const { clock, seen, state } = world(on, 50_000)
+  state.busy = 1
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  expect(seen.compacts).toBe(0)
+  expect(JSON.stringify(seen.runs)).toMatch(/"\/bin\/rm","-f",".*_plugin\.md"/)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(seen.compacts).toBe(1)
+})
+
+test('a retry that fails again is not retried forever', async ($, on) => {
+  const { clock, seen, state } = world(on, 50_000)
+  state.busy = 5
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  await endTurn($)
+  await clock.advance(2000)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(state.busy).toBe(3)
+  expect(seen.compacts).toBe(0)
 })
