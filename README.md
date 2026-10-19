@@ -109,7 +109,7 @@ A searchable memory database (SQLite full-text search, ranked and stemmed) for C
 
 - **notes**: small facts kept only in the database (`memdb_add`)
 - **docs**: long markdown files such as plans or old handover notes, split by heading (`memdb_index`)
-- **compact saves**: if you use auto-compact, each transcript it saves to `~/.claude/compact-saves/` is indexed automatically, one entry per message, under the name of the folder the session ran in (so `memdb_search` with a project narrows to one repo). Deleting a save removes it from the database; the database file is owner-only (`600`).
+- **transcripts**: if you use auto-compact, each conversation it saves to `~/.claude/compact-saves/` is indexed automatically, one entry per exchange (your prompt and the work that answered it), titled with the date and the prompt's first line and filed under the folder the session ran in. Search ranks memories and notes above docs and docs above transcripts, shows at most two old conversations by default (the best exchange of each) and says how many more matched; search with kind `transcript` for all of them. Deleting a save removes it; the database file is owner-only (`600`).
 
 Claude gets these tools: `memdb_search`, `memdb_add`, `memdb_get`, `memdb_index` and `memdb_forget`, and a short note in the system prompt telling it to search before rereading long notes. You get `/memdb <words>` to search, plus `/memdb stats`, `/memdb list`, `/memdb get <name>` and `/memdb sync`.
 

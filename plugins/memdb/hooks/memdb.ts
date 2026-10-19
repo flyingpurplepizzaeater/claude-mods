@@ -23,14 +23,14 @@ export type ToolDef = {
   build: (a: Args) => { args: string[]; stdin?: string }
 }
 
-const KINDS = ['memory', 'note', 'doc']
+const KINDS = ['memory', 'note', 'doc', 'transcript']
 const TYPES = ['user', 'feedback', 'project', 'reference']
 
 export const TOOLS: ToolDef[] = [
   {
     name: 'memdb_search',
     description:
-      'Ranked full-text search over the memory database: Claude memory files, saved notes and indexed docs. Use it before rereading a long notes file or when you need a fact you may have stored. Returns matching entries with snippets (set full to get whole bodies).',
+      'Ranked full-text search over the memory database: Claude memory files, saved notes, indexed docs and saved past conversations (at most two of those by default; kind transcript for all). Use it before rereading a long notes file or when you need a fact you may have stored. Returns matching entries with snippets (set full to get whole bodies).',
     inputSchema: {
       type: 'object',
       properties: {

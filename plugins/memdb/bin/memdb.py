@@ -5,8 +5,9 @@ The markdown memory files stay the source of truth for anything that must load
 every session. This database indexes them, plus:
   - "notes": facts kept only here (too many or too niche for MEMORY.md)
   - "docs": long markdown files (handoff notes, plans) split by heading
-  - the auto-compact mod's transcript saves (~/.claude/compact-saves/*.md),
-    indexed as docs by the folder the session ran in
+  - "transcripts": the auto-compact mod's saves (~/.claude/compact-saves/*.md),
+    one entry per exchange (a prompt and the work that answered it), under the
+    folder the session ran in; search ranks them below memories, notes and docs
 and searches all of it with SQLite FTS5 (ranked, stemmed full-text search).
 
 Every command first re-syncs changed memory files and indexed docs, so the
@@ -34,13 +35,13 @@ SAVES_DIR = CONFIG_DIR / "compact-saves"
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
   id INTEGER PRIMARY KEY,
-  kind TEXT NOT NULL,              -- memory | note | doc
+  kind TEXT NOT NULL,              -- memory | note | doc | transcript
   name TEXT NOT NULL,              -- slug, or doc path + '#' + heading
   type TEXT,                       -- user | feedback | project | reference
   project TEXT,
   description TEXT,
   body TEXT NOT NULL,
-  source TEXT,                     -- file path for memory/doc
+  source TEXT,                     -- file path for memory/doc/transcript
   mtime REAL,
   created TEXT NOT NULL,
   updated TEXT NOT NULL,
@@ -166,8 +167,64 @@ def sync_doc(db, path, project, force=False):
                description=heading, source=str(p), mtime=mtime)
 
 
+CHUNK_CHARS = 4000
+
+
+def split_exchanges(text):
+    """A compact save -> (date, [(title, body)]): one chunk per prompt and what answered it.
+
+    An exchange starts at each user message with text of its own and runs to the next;
+    one longer than CHUNK_CHARS is split, the parts titled "<title> (2)" and so on.
+    """
+    m = re.search(r"^- Saved: (\d{4}-\d\d-\d\d)", text, re.M)
+    date = m.group(1) if m else ""
+    exchanges, title, buf = [], None, []
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        h = re.match(r"^## \d+\. (user|assistant)\s*$", line)
+        if h and h.group(1) == "user":
+            # The prompt's first non-empty line names the exchange.
+            first = next((l.strip() for l in lines[i + 1:] if l.strip()), "")
+            if not first.startswith("## "):
+                if title is not None:
+                    exchanges.append((title, buf))
+                title, buf = first, []
+                i += 1
+                continue
+        if title is not None and not h:
+            buf.append(line)
+        i += 1
+    if title is not None:
+        exchanges.append((title, buf))
+    chunks = []
+    for title, body in exchanges:
+        body = "\n".join(body).strip()
+        name = re.sub(r"\s+", " ", title)[:80] or "(no text)"
+        parts = [body[j:j + CHUNK_CHARS] for j in range(0, len(body), CHUNK_CHARS)] or [""]
+        for n, part in enumerate(parts, 1):
+            chunks.append((name if n == 1 else f"{name} ({n})", part))
+    return date, chunks
+
+
+def sync_transcript(db, f, project):
+    src, mtime = str(f), f.stat().st_mtime
+    old = db.execute("SELECT mtime FROM entries WHERE kind='transcript' AND source=? LIMIT 1", (src,)).fetchone()
+    if old and old["mtime"] == mtime:
+        return
+    db.execute("DELETE FROM entries WHERE kind='transcript' AND source=?", (src,))
+    date, chunks = split_exchanges(f.read_text(errors="replace"))
+    for n, (title, body) in enumerate(chunks, 1):
+        upsert(db, "transcript", f"{f.name}#{n}", body, project=project,
+               description=f"{date} {title}".strip(), source=src, mtime=mtime)
+
+
 def sync_saves(db):
     """Index each transcript save (not the precompute scratch files); drop those deleted."""
+    prefix = str(SAVES_DIR) + os.sep
+    # Saves indexed by memdb 1.1 as docs, one per message: replaced by transcript entries.
+    db.execute("DELETE FROM entries WHERE kind='doc' AND source LIKE ?", (prefix + "%",))
     seen = set()
     if SAVES_DIR.is_dir():
         for f in sorted(SAVES_DIR.glob("*.md")):
@@ -177,12 +234,10 @@ def sync_saves(db):
             head = f.read_text(errors="replace")[:2000]
             m = re.search(r"^- Folder: (.+)$", head, re.M)
             project = Path(m.group(1).strip()).name if m else "compact-saves"
-            sync_doc(db, f, project)
-    prefix = str(SAVES_DIR) + os.sep
-    for row in db.execute("SELECT DISTINCT source FROM entries WHERE kind='doc' AND source LIKE ?",
-                          (prefix + "%",)).fetchall():
+            sync_transcript(db, f, project)
+    for row in db.execute("SELECT DISTINCT source FROM entries WHERE kind='transcript'").fetchall():
         if row["source"] not in seen:
-            db.execute("DELETE FROM entries WHERE kind='doc' AND source=?", (row["source"],))
+            db.execute("DELETE FROM entries WHERE kind='transcript' AND source=?", (row["source"],))
 
 
 def sync_all(db):
@@ -212,22 +267,45 @@ def show(row, full=False):
     print()
 
 
+# bm25 is lower-is-better (negative); a heavier kind wins close calls.
+KIND_WEIGHT = "CASE e.kind WHEN 'memory' THEN 2.0 WHEN 'note' THEN 2.0 WHEN 'doc' THEN 1.5 ELSE 1.0 END"
+TRANSCRIPT_HITS = 2
+
+
 def cmd_search(db, a):
-    sql = ("SELECT e.*, snippet(entries_fts, 2, '«', '»', ' … ', 24) AS snip "
-           "FROM entries_fts JOIN entries e ON e.id = entries_fts.rowid "
-           "WHERE entries_fts MATCH ?")
-    params = [fts_query(a.query)]
-    if a.kind:
-        sql += " AND e.kind=?"; params.append(a.kind)
+    base = ("SELECT e.*, snippet(entries_fts, 2, '«', '»', ' … ', 24) AS snip, "
+            f"bm25(entries_fts, 10.0, 5.0, 1.0) * {KIND_WEIGHT} AS score "
+            "FROM entries_fts JOIN entries e ON e.id = entries_fts.rowid "
+            "WHERE entries_fts MATCH ?")
+    extra, params = "", []
     if a.project:
-        sql += " AND e.project LIKE ?"; params.append(f"%{a.project}%")
-    sql += " ORDER BY bm25(entries_fts, 10.0, 5.0, 1.0) LIMIT ?"
-    params.append(a.limit)
-    rows = db.execute(sql, params).fetchall()
+        extra += " AND e.project LIKE ?"; params.append(f"%{a.project}%")
+
+    def find(match):
+        """Ranked rows for one MATCH expression, and how many transcript hits were left out."""
+        if a.kind:
+            sql = base + " AND e.kind=?" + extra + " ORDER BY score LIMIT ?"
+            return db.execute(sql, [match, a.kind, *params, a.limit]).fetchall(), 0
+        curated = db.execute(base + " AND e.kind != 'transcript'" + extra + " ORDER BY score LIMIT ?",
+                             [match, *params, a.limit]).fetchall()
+        # Transcripts: the best chunk of each save, at most TRANSCRIPT_HITS of them.
+        hits = db.execute(base + " AND e.kind = 'transcript'" + extra + " ORDER BY score",
+                          [match, *params]).fetchall()
+        best, sources = [], set()
+        for r in hits:
+            if r["source"] not in sources:
+                sources.add(r["source"]); best.append(r)
+        shown = best[:TRANSCRIPT_HITS]
+        rows = sorted([*curated, *shown], key=lambda r: r["score"])[: a.limit]
+        return rows, len(hits) - sum(1 for r in rows if r["kind"] == "transcript")
+
+    rows, more = find(fts_query(a.query))
     if len(rows) < 3 and " " in a.query.strip():  # top up with any-word matches
-        params[0] = " OR ".join(f'"{w}"*' for w in re.findall(r"[\w.-]+", a.query))
+        any_word = " OR ".join(f'"{w}"*' for w in re.findall(r"[\w.-]+", a.query))
         have = {r["id"] for r in rows}
-        rows += [r for r in db.execute(sql, params).fetchall() if r["id"] not in have][: a.limit - len(rows)]
+        extra_rows, more2 = find(any_word)
+        rows += [r for r in extra_rows if r["id"] not in have][: a.limit - len(rows)]
+        more = max(more, more2 - sum(1 for r in rows if r["kind"] == "transcript"))
     if not rows:
         print("No matches."); return
     for r in rows:
@@ -236,6 +314,8 @@ def cmd_search(db, a):
         else:
             show(r)
             print(f"  {r['snip']}\n")
+    if more > 0:
+        print(f"+{more} more in old conversations: search with kind transcript (-k transcript).")
 
 
 def cmd_get(db, a):
@@ -286,8 +366,8 @@ def cmd_list(db, a):
         sql += " AND kind=?"; params.append(a.kind)
     if a.project:
         sql += " AND project LIKE ?"; params.append(f"%{a.project}%")
-    if a.kind != "doc" and not a.kind:
-        sql += " AND kind != 'doc'"
+    if not a.kind:
+        sql += " AND kind NOT IN ('doc', 'transcript')"
     for r in db.execute(sql + " ORDER BY kind, name", params):
         show(r)
     if not a.kind:
@@ -306,7 +386,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("search", help="ranked full-text search")
-    s.add_argument("query"); s.add_argument("-k", "--kind", choices=["memory", "note", "doc"])
+    s.add_argument("query"); s.add_argument("-k", "--kind", choices=["memory", "note", "doc", "transcript"])
     s.add_argument("-p", "--project"); s.add_argument("-n", "--limit", type=int, default=8)
     s.add_argument("-f", "--full", action="store_true", help="print full bodies")
     s = sub.add_parser("get", help="show an entry by name (substring ok)"); s.add_argument("name")
@@ -319,7 +399,7 @@ def main():
     s.add_argument("paths", nargs="+"); s.add_argument("-p", "--project")
     s = sub.add_parser("unindex", help="stop indexing files"); s.add_argument("paths", nargs="+")
     s = sub.add_parser("list", help="list memories and notes")
-    s.add_argument("-k", "--kind", choices=["memory", "note", "doc"]); s.add_argument("-p", "--project")
+    s.add_argument("-k", "--kind", choices=["memory", "note", "doc", "transcript"]); s.add_argument("-p", "--project")
     sub.add_parser("sync", help="re-sync now (every command does this anyway)")
     sub.add_parser("stats", help="counts and DB size")
     a = ap.parse_args()
