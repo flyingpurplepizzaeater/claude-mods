@@ -70,7 +70,11 @@ export const register: Register = on => {
     const name = e.trigger === 'precompute' ? `${sessionId}_precompute.md` : saveName(now, sessionId, e.trigger)
     const path = `${dir}/${name}`
     try {
+      // Owner-only: the folder 700 before the file lands, the file 600 after.
+      await $.process.run(['/bin/mkdir', '-p', '-m', '700', dir])
+      await $.process.run(['/bin/chmod', '700', dir])
       await $.fs.write(path, transcript(e.messages, { sessionId, cwd, trigger: e.trigger, tokens: use?.context.tokens, now, instructions: e.instructions }))
+      await $.process.run(['/bin/chmod', '600', path])
       if (e.trigger !== 'precompute') {
         await update($, lastSave, () => path)
         $.ui.log(`[auto-compact] saved ${e.messages.length} messages to ${path} before compacting`)

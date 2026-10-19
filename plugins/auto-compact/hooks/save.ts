@@ -18,6 +18,19 @@ export const saveDir = (home: string, configDir?: string) => `${configDir || `${
 export const saveName = (now: number, sessionId: string, trigger: string) =>
   `${new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19)}_${sessionId.slice(0, 8)}_${trigger}.md`
 
+// Common credential shapes, replaced before anything reaches disk.
+const SECRETS = [
+  /\b(sk|pk|rk|ghp|gho|ghs|github_pat|xox[abprs]|glpat)[-_][A-Za-z0-9_-]{8,}/gi,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bAIza[0-9A-Za-z_-]{20,}/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}(\.[A-Za-z0-9_-]+)?/g, // a JWT
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  /((?:password|passwd|passphrase|secret|token|api[ _-]?key|authorization)["']?\s*[:=]\s*["']?)(?:Bearer\s+)?[^\s"',]{6,}/gi,
+]
+
+export const redact = (s: string) =>
+  SECRETS.reduce((out, re) => out.replace(re, (m, lead) => (typeof lead === 'string' && /[:=]\s*["']?$/.test(lead) ? `${lead}[redacted]` : '[redacted]')), s)
+
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}… [${s.length - n} more chars]` : s)
 
 /** The transcript as markdown: every message's text, each tool call's input and a clipped result. */
@@ -53,5 +66,5 @@ export function transcript(
     }
     return out
   })
-  return [...head, ...body].join('\n')
+  return redact([...head, ...body].join('\n'))
 }

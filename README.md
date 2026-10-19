@@ -74,7 +74,7 @@ The threshold can also be set with the environment variable `AUTO_HANDOVER_THRES
 
 ### auto-compact
 
-After each answer, if the context is past 250k tokens, it compacts the conversation, telling the summary to keep the goal, decisions, files changed and next steps. Before **every** compaction (your `/compact`, the built-in auto-compact, or its own) it saves the full conversation as markdown to `~/.claude/compact-saves/`: every message and each tool call with its result, long ones clipped. A failed save never blocks the compaction.
+After each answer, if the context is past 250k tokens, it compacts the conversation, telling the summary to keep the goal, decisions, files changed and next steps. Before **every** compaction (your `/compact`, the built-in auto-compact, or its own) it saves the full conversation as markdown to `~/.claude/compact-saves/`: every message and each tool call with its result, long ones clipped. Common secrets (API keys, tokens, JWTs, private keys, `password: …`) are redacted, and the folder is owner-only (`700`, files `600`). A failed save never blocks the compaction.
 
 ```
 /autocompact status            on or off, the threshold, this session's size and the last save

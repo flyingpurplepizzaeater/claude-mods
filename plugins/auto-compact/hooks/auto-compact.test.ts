@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { parseTokens, transcript } from './save'
+import { parseTokens, redact, transcript } from './save'
 
 const MESSAGES = [
   { role: 'user', text: 'Fix the export', toolUses: [] },
@@ -12,13 +12,14 @@ const MESSAGES = [
 function world(on: On, tokens: number) {
   const clock = mock.clock(on)
   mock.store(on)
-  const seen = { compacts: 0, writes: [] as { path: string; text: string }[], logs: [] as string[] }
+  const seen = { compacts: 0, writes: [] as { path: string; text: string }[], logs: [] as string[], runs: [] as string[][] }
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens }, rateLimits: [] } }) as never)
   on('session.id', () => ({ value: 'abcdef1234567890' }) as never)
   on('session.cwd', () => ({ value: '/home/test/proj' }) as never)
   on('env.get', (_$, e: any) => ({ value: e.name === 'HOME' ? '/home/test' : undefined }) as never)
   on('fs.write', (_$, e: any) => { seen.writes.push({ path: e.path, text: e.text }); return { value: undefined } as never })
   on('ui.log', (_$, e: any) => { seen.logs.push(e.text); return { value: undefined } as never })
+  on('process.run', (_$, e: any) => { seen.runs.push(e.argv ?? e.command ?? e.args ?? e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as never })
   on('ui.toast', () => ({ value: undefined }) as never)
   on('turn.complete', (_$, e: any) => ({ text: e.answer }) as never)
   on('session.compact', () => { seen.compacts += 1; return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } as never })
@@ -73,6 +74,15 @@ test('any compaction saves the transcript first', async ($, on) => {
   expect(save?.path).toMatch(/^\/home\/test\/\.claude\/compact-saves\/.+_abcdef12_(manual|plugin)\.md$/)
   expect(save?.text).toMatch(/Fix the export/)
   expect(save?.text).toMatch(/Compact instructions: keep the plan/)
+  expect(JSON.stringify(seen.runs)).toMatch(/mkdir.*-m.*700/)
+  expect(JSON.stringify(seen.runs)).toMatch(/chmod.*600.*_manual\.md|chmod.*600.*_plugin\.md/)
+})
+
+test('secrets are redacted before saving', () => {
+  const out = redact('key ghp_abcdefghijklmnop1234 and password: hunter2pass and AKIAABCDEFGHIJKLMNOP and Authorization: Bearer abc.def.ghijkl')
+  expect(out).not.toMatch(/ghp_abcdefghijklmnop1234|hunter2pass|AKIAABCDEFGHIJKLMNOP|abc\.def\.ghijkl/)
+  expect(out).toMatch(/password: \[redacted\]/)
+  expect(redact('nothing secret here')).toBe('nothing secret here')
 })
 
 test('transcript renders messages and tool calls', () => {
