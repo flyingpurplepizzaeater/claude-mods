@@ -3,7 +3,7 @@
   "owner": {
     "name": "flyingpurplepizzaeater"
   },
-  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, prompt upgrade and a searchable memory database",
+  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, auto compact, prompt upgrade and a searchable memory database",
   "plugins": [
     {
       "name": "agent-dashboard",
@@ -29,6 +29,11 @@
       "name": "memdb",
       "source": "./plugins/memdb",
       "description": "A searchable memory database for Claude: search/add/get/index tools, a /memdb command, memory files indexed automatically"
+    },
+    {
+      "name": "auto-compact",
+      "source": "./plugins/auto-compact",
+      "description": "Compacts past 250k tokens and saves the full transcript to ~/.claude/compact-saves before every compaction (/autocompact)"
     }
   ]
 }

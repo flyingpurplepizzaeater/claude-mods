@@ -6,6 +6,7 @@ A small collection of Claude Code mods (plugins that hook into the session). Ins
 | --- | --- |
 | [agent-dashboard](#agent-dashboard) | One Dashboard pane with usage and context bars, tasks, tests, sessions and subagents |
 | [auto-handover](#auto-handover) | `/handover` writes a handover note and starts (or proposes) a fresh session |
+| [auto-compact](#auto-compact) | Compacts past 250k tokens and saves the full transcript before every compaction |
 | [build-trimmer](#build-trimmer) | Trims long `xcodebuild` / `swift build` output so it does not fill your context |
 | [prompt-upgrade](#prompt-upgrade) | `/improve` rewrites a rough prompt into a clear one |
 | [memdb](#memdb) | A searchable memory database Claude can query and add to |
@@ -71,6 +72,19 @@ Options (all can be changed later in `/config`):
 
 The threshold can also be set with the environment variable `AUTO_HANDOVER_THRESHOLD` or per project in `.claude/auto-handover.json` (`{ "threshold": "120k" }`). Notes go to `$CLAUDE_CONFIG_DIR/handovers` if that variable is set. No plugin options.
 
+### auto-compact
+
+After each answer, if the context is past 250k tokens, it compacts the conversation, telling the summary to keep the goal, decisions, files changed and next steps. Before **every** compaction (your `/compact`, the built-in auto-compact, or its own) it saves the full conversation as markdown to `~/.claude/compact-saves/`: every message and each tool call with its result, long ones clipped. A failed save never blocks the compaction.
+
+```
+/autocompact status            on or off, the threshold, this session's size and the last save
+/autocompact on | off          automatic compaction (on by default; saves happen either way)
+/autocompact threshold 250k    set the threshold (at least 10k)
+/autocompact now               save and compact now
+```
+
+The threshold can also be set with the environment variable `AUTO_COMPACT_THRESHOLD`. Saves go to `$CLAUDE_CONFIG_DIR/compact-saves` if that variable is set. If the model's context window is no larger than the threshold, the built-in auto-compact fires first (the transcript is still saved). No plugin options.
+
 ### build-trimmer
 
 Wraps `xcodebuild`, `swift build` and `swift test` commands that Claude runs in Bash. The full output goes to a log file and Claude sees only the errors, failing tests, the summary and the tail, plus the log path. The exit code is preserved. Logs are in `~/.claude/build-trimmer/logs` and are deleted after 7 days. Add `# no-trim` to a command to leave it alone.
@@ -124,7 +138,7 @@ python3 plugins/memdb/bin/memdb.py add staging-port "It is 5433" -d "staging DB 
 - Update: `claude plugin update <mod>` (or `claude plugin marketplace update claude-mods` first).
 - Turn off without removing: `claude plugin disable <mod>`; turn back on with `claude plugin enable <mod>`.
 - Uninstall: `claude plugin uninstall <mod>`. To drop the marketplace too: `claude plugin marketplace remove claude-mods`.
-- memdb keeps its database in `~/.claude/memdb/`; delete that folder if you want the data gone. auto-handover notes stay in `~/.claude/handovers/` and build-trimmer logs in `~/.claude/build-trimmer/logs/`.
+- memdb keeps its database in `~/.claude/memdb/`; delete that folder if you want the data gone. auto-handover notes stay in `~/.claude/handovers/`, auto-compact saves in `~/.claude/compact-saves/` and build-trimmer logs in `~/.claude/build-trimmer/logs/`.
 
 ## Other mods worth adding
 
