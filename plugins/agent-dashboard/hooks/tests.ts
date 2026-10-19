@@ -1,5 +1,3 @@
-import type { Engine } from 'claude-code'
-
 export const TEST_COMMAND =
   /\bxcodebuild\b[^|;&]*\btest(-without-building)?\b|\bswift test\b|\bxcrun xctest\b|\bpytest\b|\bpython3? -m (pytest|unittest)\b|\b(npm|pnpm|yarn) (run )?test\b|\bgo test\b|\bcargo test\b|\bplugin test\b|\bpio test\b|\btests?\/run\.sh\b|\brun[-_]?tests?\b/
 // Background Bash output lands in <tmp root>/<project key>/<session id>/tasks/<task id>.output,
@@ -25,20 +23,6 @@ export function judge(out: string): { verdict: 'passed' | 'failed'; summary: str
   }
   if (/\*\* TEST (SUCCEEDED|EXECUTE SUCCEEDED) \*\*|✔ Test run with|Test run with .* passed|=+ \d+ passed|\bOK\b\s*$|Executed \d+ tests?, with 0 failures/m.test(out)) {
     return { verdict: 'passed', summary: count || 'passed' }
-  }
-  return undefined
-}
-
-export async function findTaskOutput($: Engine, taskId: string): Promise<string | undefined> {
-  const sid = await $.session.id()
-  const uid = String((await $.process.run(['/usr/bin/id', '-u']).catch(() => undefined))?.stdout ?? '').trim()
-  if (!/^\d+$/.test(uid)) return undefined
-  for (const root of [`/private/tmp/claude-${uid}`, `/tmp/claude-${uid}`]) {
-    const dirs = await $.fs.list(root).catch(() => [])
-    for (const dir of dirs) {
-      const path = `${root}/${dir.name}/${sid}/tasks/${taskId}.output`
-      if (dir.kind === 'dir' && (await $.fs.exists(path))) return path
-    }
   }
   return undefined
 }

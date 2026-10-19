@@ -3,8 +3,23 @@ import type { Engine, Register } from 'claude-code'
 
 import type { SessionRow, SubagentRow, TestRun, UsageRow } from '../types'
 import { nextTodos } from './tasks'
-import { BUILD_NOTE, POLL_LIMIT, POLL_MS, TEST_COMMAND, findTaskOutput, isLongForeground, judge } from './tests'
+import { BUILD_NOTE, POLL_LIMIT, POLL_MS, TEST_COMMAND, isLongForeground, judge } from './tests'
 import { CONTEXT_ADVICE, contextLevel } from './context'
+
+// Kept in this file: the engine follows $ only into functions declared in the same module.
+async function findTaskOutput($: Engine, taskId: string): Promise<string | undefined> {
+  const sid = await $.session.id()
+  const uid = String((await $.process.run(['/usr/bin/id', '-u']).catch(() => undefined))?.stdout ?? '').trim()
+  if (!/^\d+$/.test(uid)) return undefined
+  for (const root of [`/private/tmp/claude-${uid}`, `/tmp/claude-${uid}`]) {
+    const dirs = await $.fs.list(root).catch(() => [])
+    for (const dir of dirs) {
+      const path = `${root}/${dir.name}/${sid}/tasks/${taskId}.output`
+      if (dir.kind === 'dir' && (await $.fs.exists(path))) return path
+    }
+  }
+  return undefined
+}
 
 // Every running Claude Code process writes a record in <config dir>/sessions (pid, name, status, cwd).
 // The config dir is CLAUDE_CONFIG_DIR when set, else ~/.claude.
