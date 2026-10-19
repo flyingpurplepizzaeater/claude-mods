@@ -141,3 +141,18 @@ test('a retry that fails again is not retried forever', async ($, on) => {
   expect(state.busy).toBe(3)
   expect(seen.compacts).toBe(0)
 })
+
+test('/autocompact status shows how the last run went, including a pending retry', async ($, on) => {
+  const { clock, state } = world(on, 50_000)
+  state.busy = 1
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  let status = String(((await $.command.run({ command: 'autocompact', args: 'status' } as never)) as any).text)
+  expect(status).toMatch(/Last run: .*compaction deferred until the next answer ends: ./)
+  expect(status).toMatch(/Waiting to retry after the next answer/)
+  await endTurn($)
+  await clock.advance(2000)
+  status = String(((await $.command.run({ command: 'autocompact', args: 'status' } as never)) as any).text)
+  expect(status).toMatch(/Last run: .*compacted \(asked with \/autocompact now\), saved to \/home\/test\/\.claude\/compact-saves\/.+_plugin\.md\./)
+  expect(status).not.toMatch(/Waiting to retry/)
+})

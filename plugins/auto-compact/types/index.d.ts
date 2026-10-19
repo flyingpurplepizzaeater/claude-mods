@@ -3,6 +3,6 @@ export type LastSave = string
 
 declare module 'claude-code' {
   interface PluginState {
-    'auto-compact': { compacting: boolean; lastSave: LastSave; pending: string }
+    'auto-compact': { compacting: boolean; lastSave: LastSave; pending: string; lastResult: string }
   }
 }

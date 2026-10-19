@@ -8,6 +8,16 @@ const compacting = atom({ plugin: 'auto-compact', key: 'compacting' } as const, 
 const lastSave = atom({ plugin: 'auto-compact', key: 'lastSave' } as const, '')
 // A compaction that met a running turn: tried again when the main loop's next turn ends.
 const pending = atom({ plugin: 'auto-compact', key: 'pending' } as const, '')
+// What the last compaction this mod started came to, for /autocompact status.
+const lastResult = atom({ plugin: 'auto-compact', key: 'lastResult' } as const, '')
+
+// ui.log reaches only the debug log in the desktop app: outcomes go to a toast and to status as well.
+async function report($: Engine, text: string) {
+  $.ui.log(`[auto-compact] ${text}`)
+  $.ui.toast(`auto-compact: ${text}`)
+  const at = new Date(await $.clock.now()).toTimeString().slice(0, 8)
+  await update($, lastResult, () => `${at} ${text}`)
+}
 
 const USAGE = '/autocompact [status | on | off | threshold <250k> | now]'
 
@@ -63,13 +73,13 @@ async function compactNow($: Engine, why: string, retry = false) {
     if (messages.length) saved = await save($, messages, 'plugin', INSTRUCTIONS)
     const r = await $.session.compact({ instructions: INSTRUCTIONS })
     await update($, pending, () => '')
-    if (r.skip !== undefined) $.ui.log(`[auto-compact] compaction skipped: ${r.skip}`)
-    else $.ui.toast(`Compacted (${why}).`)
+    if (r.skip !== undefined) await report($, `compaction skipped: ${r.skip}`)
+    else await report($, `compacted (${why})${saved ? `, saved to ${saved}` : ', but the transcript could not be saved'}.`)
   } catch (err) {
     // Rejected while a turn runs: drop the save it never compacted, try again once when the next turn ends.
     if (saved) await $.process.run(['/bin/rm', '-f', saved]).catch(() => undefined)
     await update($, pending, () => (retry ? '' : why))
-    $.ui.log(`[auto-compact] compaction ${retry ? 'failed' : 'deferred until the turn ends'}: ${String(err)}`)
+    await report($, `compaction ${retry ? 'failed' : 'deferred until the next answer ends'}: ${String(err)}`)
   } finally {
     await update($, compacting, () => false)
   }
@@ -128,7 +138,7 @@ export const register: Register = on => {
       return { text: 'Saving the transcript and compacting…' }
     }
     if (verb === 'status') {
-      const [enabled, limit, use, saved, dir] = [await isEnabled($), await getThreshold($), await $.session.usage().catch(() => undefined), await read($, lastSave), await getSaveDir($)]
+      const [enabled, limit, use, saved, dir, last, waiting] = [await isEnabled($), await getThreshold($), await $.session.usage().catch(() => undefined), await read($, lastSave), await getSaveDir($), await read($, lastResult), await read($, pending)]
       const window = use?.context.window
       return {
         text: [
@@ -136,6 +146,8 @@ export const register: Register = on => {
           `This session: ${use?.context.tokens !== undefined ? fmtTokens(use.context.tokens) : 'no count yet'}${window ? ` of a ${fmtTokens(window)} window` : ''}.`,
           ...(window && window <= limit ? [`Note: this model's window is no larger than the threshold, so the built-in auto-compact fires first (the transcript is still saved).`] : []),
           `Saves go to ${dir}${saved ? `; last: ${saved}` : ''}.`,
+          ...(last ? [`Last run: ${last}`] : []),
+          ...(waiting ? [`Waiting to retry after the next answer (${waiting}).`] : []),
         ].join('\n'),
       }
     }
