@@ -24,8 +24,10 @@ function world(on: On, tokens: number) {
   on('turn.complete', (_$, e: any) => ({ text: e.answer }) as never)
   on('session.messages', () => ({ value: MESSAGES }) as never)
   // busy: how many compactions to reject as if a turn were running.
-  const state = { busy: 0 }
-  on('session.compact', () => {
+  const state = { busy: 0, headless: false, commands: [] as string[] }
+  on('session.compact', (_$, e: any) => {
+    // An SDK host: the mod's own call (no messages) is refused; /compact (with messages) goes through.
+    if (state.headless && e.messages === undefined) throw new Error('$.session.compact: not available in a headless (-p / SDK) session yet')
     if (state.busy > 0) { state.busy -= 1; throw new Error('a turn is running') }
     seen.compacts += 1
     return { messages: [{ role: 'user', text: 'summary', toolUses: [] }] } as never
@@ -155,4 +157,25 @@ test('/autocompact status shows how the last run went, including a pending retry
   status = String(((await $.command.run({ command: 'autocompact', args: 'status' } as never)) as any).text)
   expect(status).toMatch(/Last run: .*compacted \(asked with \/autocompact now\), saved to \/home\/test\/\.claude\/compact-saves\/.+_plugin\.md\./)
   expect(status).not.toMatch(/Waiting to retry/)
+})
+
+test('in an SDK host it runs /compact itself and saves exactly once', async ($, on) => {
+  const { clock, seen, state } = world(on, 50_000)
+  state.headless = true
+  // The engine's /compact: a manual compaction of the conversation, through every hook.
+  on('command.run', { command: 'compact' }, async (_$: any, e: any) => {
+    state.commands.push(`/compact ${e.args}`)
+    await $.session.compact({ trigger: 'manual', messages: MESSAGES, instructions: e.args } as never)
+    return { text: 'Compacted' } as never
+  })
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  expect(state.commands).toEqual(['/compact Keep the current goal, decisions made, files changed and the next steps.'])
+  expect(seen.compacts).toBe(1)
+  expect(seen.writes.filter(w => w.path.includes('/compact-saves/')).length).toBe(1)
+  const status = String(((await $.command.run({ command: 'autocompact', args: 'status' } as never)) as any).text)
+  expect(status).toMatch(/Last run: .*compacted \(asked with \/autocompact now\), saved to /)
+  // A later /compact of the person's own still saves.
+  await $.session.compact({ trigger: 'manual', messages: MESSAGES } as never)
+  expect(seen.writes.filter(w => w.path.includes('/compact-saves/')).length).toBe(2)
 })

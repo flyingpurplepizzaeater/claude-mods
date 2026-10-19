@@ -10,6 +10,9 @@ const lastSave = atom({ plugin: 'auto-compact', key: 'lastSave' } as const, '')
 const pending = atom({ plugin: 'auto-compact', key: 'pending' } as const, '')
 // What the last compaction this mod started came to, for /autocompact status.
 const lastResult = atom({ plugin: 'auto-compact', key: 'lastResult' } as const, '')
+// When this mod last saved ahead of a /compact it ran itself, so that compaction's hook does not save twice.
+const selfSavedAt = atom({ plugin: 'auto-compact', key: 'selfSavedAt' } as const, 0)
+const SELF_SAVE_WINDOW_MS = 10 * 60_000
 
 // ui.log reaches only the debug log in the desktop app: outcomes go to a toast and to status as well.
 async function report($: Engine, text: string) {
@@ -68,16 +71,28 @@ async function save($: Engine, messages: readonly SessionMessage[], trigger: str
 async function compactNow($: Engine, why: string, retry = false) {
   await update($, compacting, () => true)
   let saved: string | undefined
+  const before = await read($, lastSave)
   try {
     const messages = await $.session.messages().catch(() => [] as SessionMessage[])
     if (messages.length) saved = await save($, messages, 'plugin', INSTRUCTIONS)
-    const r = await $.session.compact({ instructions: INSTRUCTIONS })
+    // The desktop app and other SDK hosts have no $.session.compact, and it rejects while a turn runs:
+    // either way /compact does it, queued by the engine until the session is idle.
+    const r = await $.session.compact({ instructions: INSTRUCTIONS }).catch(async () => {
+      const at = saved ? await $.clock.now() : 0
+      await update($, selfSavedAt, () => at)
+      await $.command.run({ command: 'compact', args: INSTRUCTIONS })
+      return { skip: undefined }
+    })
     await update($, pending, () => '')
     if (r.skip !== undefined) await report($, `compaction skipped: ${r.skip}`)
     else await report($, `compacted (${why})${saved ? `, saved to ${saved}` : ', but the transcript could not be saved'}.`)
   } catch (err) {
     // Rejected while a turn runs: drop the save it never compacted, try again once when the next turn ends.
-    if (saved) await $.process.run(['/bin/rm', '-f', saved]).catch(() => undefined)
+    if (saved) {
+      await $.process.run(['/bin/rm', '-f', saved]).catch(() => undefined)
+      await update($, lastSave, () => before)
+      await update($, selfSavedAt, () => 0)
+    }
     await update($, pending, () => (retry ? '' : why))
     await report($, `compaction ${retry ? 'failed' : 'deferred until the next answer ends'}: ${String(err)}`)
   } finally {
@@ -117,6 +132,11 @@ export const register: Register = on => {
   // Before any compaction of the main conversation (/compact, built-in auto, this mod): save it whole.
   on('session.compact', async ($, e, next) => {
     if (e.agentId !== undefined || !e.messages?.length) return next(e)
+    const selfSaved = await read($, selfSavedAt)
+    if (e.trigger !== 'precompute' && selfSaved && (await $.clock.now()) - selfSaved < SELF_SAVE_WINDOW_MS) {
+      await update($, selfSavedAt, () => 0) // this mod's own /compact: saved already
+      return next(e)
+    }
     await save($, e.messages, e.trigger, e.instructions)
     return next(e)
   }).catch(($, e, next) => next(e)) // a failed save never blocks the compaction
