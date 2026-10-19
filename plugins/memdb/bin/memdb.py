@@ -5,6 +5,8 @@ The markdown memory files stay the source of truth for anything that must load
 every session. This database indexes them, plus:
   - "notes": facts kept only here (too many or too niche for MEMORY.md)
   - "docs": long markdown files (handoff notes, plans) split by heading
+  - the auto-compact mod's transcript saves (~/.claude/compact-saves/*.md),
+    indexed as docs by the folder the session ran in
 and searches all of it with SQLite FTS5 (ranked, stemmed full-text search).
 
 Every command first re-syncs changed memory files and indexed docs, so the
@@ -27,6 +29,7 @@ HOME = Path.home()
 CONFIG_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
 DB_PATH = Path(os.environ.get("MEMDB_PATH") or CONFIG_DIR / "memdb/memory.db")
 MEMORY_DIRS = [p for p in (CONFIG_DIR / "projects").glob("*/memory") if p.is_dir()]
+SAVES_DIR = CONFIG_DIR / "compact-saves"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (
@@ -72,6 +75,10 @@ def now():
 def connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(DB_PATH)
+    try:  # it holds transcript text: owner-only, like the saves themselves
+        os.chmod(DB_PATH, 0o600)
+    except OSError:
+        pass
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
     return db
@@ -159,8 +166,28 @@ def sync_doc(db, path, project, force=False):
                description=heading, source=str(p), mtime=mtime)
 
 
+def sync_saves(db):
+    """Index each transcript save (not the precompute scratch files); drop those deleted."""
+    seen = set()
+    if SAVES_DIR.is_dir():
+        for f in sorted(SAVES_DIR.glob("*.md")):
+            if f.name.endswith("_precompute.md"):
+                continue
+            seen.add(str(f))
+            head = f.read_text(errors="replace")[:2000]
+            m = re.search(r"^- Folder: (.+)$", head, re.M)
+            project = Path(m.group(1).strip()).name if m else "compact-saves"
+            sync_doc(db, f, project)
+    prefix = str(SAVES_DIR) + os.sep
+    for row in db.execute("SELECT DISTINCT source FROM entries WHERE kind='doc' AND source LIKE ?",
+                          (prefix + "%",)).fetchall():
+        if row["source"] not in seen:
+            db.execute("DELETE FROM entries WHERE kind='doc' AND source=?", (row["source"],))
+
+
 def sync_all(db):
     sync_memories(db)
+    sync_saves(db)
     for row in db.execute("SELECT path, project FROM indexed_docs").fetchall():
         sync_doc(db, row["path"], row["project"])
     db.commit()

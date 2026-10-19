@@ -74,7 +74,7 @@ The threshold can also be set with the environment variable `AUTO_HANDOVER_THRES
 
 ### auto-compact
 
-After each answer, if the context is past 250k tokens, it compacts the conversation, telling the summary to keep the goal, decisions, files changed and next steps. Before **every** compaction (your `/compact`, the built-in auto-compact, or its own) it saves the full conversation as markdown to `~/.claude/compact-saves/`: every message and each tool call with its result, long ones clipped. Common secrets (API keys, tokens, JWTs, private keys, `password: …`) are redacted, and the folder is owner-only (`700`, files `600`). A failed save never blocks the compaction.
+After each answer, if the context is past 250k tokens, it compacts the conversation, telling the summary to keep the goal, decisions, files changed and next steps. Before **every** compaction (your `/compact`, the built-in auto-compact, or its own) it saves the full conversation as markdown to `~/.claude/compact-saves/`: every message and each tool call with its result, long ones clipped. Common secrets (API keys, tokens, JWTs, private keys, `password: …`) are redacted, and the folder is owner-only (`700`, files `600`). A failed save never blocks the compaction. With [memdb](#memdb) installed, the saves become searchable there.
 
 ```
 /autocompact status            on or off, the threshold, this session's size and the last save
@@ -109,6 +109,7 @@ A searchable memory database (SQLite full-text search, ranked and stemmed) for C
 
 - **notes**: small facts kept only in the database (`memdb_add`)
 - **docs**: long markdown files such as plans or old handover notes, split by heading (`memdb_index`)
+- **compact saves**: if you use auto-compact, each transcript it saves to `~/.claude/compact-saves/` is indexed automatically, one entry per message, under the name of the folder the session ran in (so `memdb_search` with a project narrows to one repo). Deleting a save removes it from the database; the database file is owner-only (`600`).
 
 Claude gets these tools: `memdb_search`, `memdb_add`, `memdb_get`, `memdb_index` and `memdb_forget`, and a short note in the system prompt telling it to search before rereading long notes. You get `/memdb <words>` to search, plus `/memdb stats`, `/memdb list`, `/memdb get <name>` and `/memdb sync`.
 
