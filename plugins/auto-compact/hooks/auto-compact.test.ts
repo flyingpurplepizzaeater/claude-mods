@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { parseTokens, redact, transcript } from './save'
+import { localIso, parseTokens, redact, saveName, transcript } from './save'
 
 const MESSAGES = [
   { role: 'user', text: 'Fix the export', toolUses: [] },
@@ -178,4 +178,15 @@ test('in an SDK host it runs /compact itself and saves exactly once', async ($, 
   // A later /compact of the person's own still saves.
   await $.session.compact({ trigger: 'manual', messages: MESSAGES } as never)
   expect(seen.writes.filter(w => w.path.includes('/compact-saves/')).length).toBe(2)
+})
+
+test('save names and the Saved line use local time with its offset', () => {
+  const now = Date.UTC(2026, 9, 19, 22, 8, 3) // 22:08:03 UTC
+  const d = new Date(now)
+  const local = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}`
+  expect(localIso(now).startsWith(local)).toBe(true)
+  expect(localIso(now)).toMatch(/^\d{4}-\d\d-\d\dT\d\d:08:03[+-]\d\d:\d\d$/)
+  expect(saveName(now, 'abcdef1234', 'plugin')).toBe(`${localIso(now).slice(0, 19).replace(/:/g, '-')}_abcdef12_plugin.md`)
+  const md = transcript(MESSAGES as never, { sessionId: 's1', cwd: '/p', trigger: 'plugin', now })
+  expect(md).toContain(`- Saved: ${localIso(now)}`)
 })

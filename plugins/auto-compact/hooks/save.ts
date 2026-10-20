@@ -15,8 +15,19 @@ export const fmtTokens = (n: number) => (n >= 1e6 ? `${+(n / 1e6).toFixed(2)}m` 
 
 export const saveDir = (home: string, configDir?: string) => `${configDir || `${home}/.claude`}/compact-saves`
 
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** Local time as ISO 8601 with its offset: 2026-10-20T09:08:03+11:00. */
+export function localIso(now: number): string {
+  const d = new Date(now)
+  const off = -d.getTimezoneOffset()
+  const sign = off >= 0 ? '+' : '-'
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}` +
+    `${sign}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`
+}
+
 export const saveName = (now: number, sessionId: string, trigger: string) =>
-  `${new Date(now).toISOString().replace(/[:.]/g, '-').slice(0, 19)}_${sessionId.slice(0, 8)}_${trigger}.md`
+  `${localIso(now).slice(0, 19).replace(/:/g, '-')}_${sessionId.slice(0, 8)}_${trigger}.md`
 
 // Common credential shapes, replaced before anything reaches disk.
 const SECRETS = [
@@ -43,7 +54,7 @@ export function transcript(
     ``,
     `- Session: ${meta.sessionId}`,
     `- Folder: ${meta.cwd}`,
-    `- Saved: ${new Date(meta.now).toISOString()}`,
+    `- Saved: ${localIso(meta.now)}`,
     `- Trigger: ${meta.trigger}${meta.tokens !== undefined ? ` at ${fmtTokens(meta.tokens)} tokens` : ''}`,
     ...(meta.instructions ? [`- Compact instructions: ${meta.instructions}`] : []),
     `- Messages: ${messages.length}`,
