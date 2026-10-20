@@ -85,6 +85,8 @@ After each answer, if the context is past 250k tokens, it compacts the conversat
 
 The threshold can also be set with the environment variable `AUTO_COMPACT_THRESHOLD`. Saves go to `$CLAUDE_CONFIG_DIR/compact-saves` if that variable is set. If the model's context window is no larger than the threshold, the built-in auto-compact fires first (the transcript is still saved). No plugin options.
 
+Its own compaction runs between turns, so after one it sends a short prompt telling the session to carry on where it left off (or say in one line that it was done or waiting for you); `/autocompact now` doesn't. Long autonomous runs are smoother if the built-in auto-compact, which compacts mid-turn and keeps going, fires at the same size: set `CLAUDE_CODE_AUTO_COMPACT_WINDOW` to the threshold plus 13000 (e.g. `213000` for `200k`). The mod then stays as a backup and still saves the transcript before every compaction.
+
 ### build-trimmer
 
 Wraps `xcodebuild`, `swift build` and `swift test` commands that Claude runs in Bash. The full output goes to a log file and Claude sees only the errors, failing tests, the summary and the tail, plus the log path. The exit code is preserved. Logs are in `~/.claude/build-trimmer/logs` and are deleted after 7 days. Add `# no-trim` to a command to leave it alone.

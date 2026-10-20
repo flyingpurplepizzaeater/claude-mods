@@ -1,6 +1,6 @@
 {
   "name": "auto-compact",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Compacts the conversation once context passes 250k tokens, and saves the full transcript to ~/.claude/compact-saves before every compaction (/autocompact)",
   "author": {
     "name": "flyingpurplepizzaeater"

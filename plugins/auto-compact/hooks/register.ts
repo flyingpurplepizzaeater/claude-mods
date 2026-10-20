@@ -37,6 +37,11 @@ const getSaveDir = async ($: Engine) =>
   saveDir((await $.env.get('HOME').catch(() => undefined)) ?? '', await $.env.get('CLAUDE_CONFIG_DIR').catch(() => undefined))
 
 const INSTRUCTIONS = 'Keep the current goal, decisions made, files changed and the next steps.'
+// Sent after a compaction the mod started on its own between turns, so autonomous work does not stall there.
+const RESUME =
+  'The conversation was just compacted automatically. Continue from where you left off: if you were in the middle of a task, ' +
+  'or waiting on a background job you said you would pick up, carry on with it now. If you had finished, or were waiting for ' +
+  'my answer, say so in one line and stop.'
 
 // Writes the conversation to compact-saves, owner-only. A failure is logged, never thrown.
 async function save($: Engine, messages: readonly SessionMessage[], trigger: string, instructions?: string): Promise<string | undefined> {
@@ -68,7 +73,8 @@ async function save($: Engine, messages: readonly SessionMessage[], trigger: str
 }
 
 // $.session.compact skips this plugin's own session.compact hook, so the save happens here first.
-async function compactNow($: Engine, why: string, retry = false) {
+async function compactNow($: Engine, why: string, opts: { retry?: boolean; resume?: boolean } = {}) {
+  const { retry = false, resume = false } = opts
   await update($, compacting, () => true)
   let saved: string | undefined
   const before = await read($, lastSave)
@@ -85,7 +91,11 @@ async function compactNow($: Engine, why: string, retry = false) {
     })
     await update($, pending, () => '')
     if (r.skip !== undefined) await report($, `compaction skipped: ${r.skip}`)
-    else await report($, `compacted (${why})${saved ? `, saved to ${saved}` : ', but the transcript could not be saved'}.`)
+    else {
+      await report($, `compacted (${why})${saved ? `, saved to ${saved}` : ', but the transcript could not be saved'}.`)
+      // Not awaited: the resumed turn may run long, and compacting must clear before it ends.
+      if (resume) void $.prompt.submit({ text: RESUME }).catch(err => $.ui.log(`[auto-compact] could not resume: ${String(err)}`))
+    }
   } catch (err) {
     // Rejected while a turn runs: drop the save it never compacted, try again once when the next turn ends.
     if (saved) {
@@ -117,7 +127,7 @@ export const register: Register = on => {
     const deferred = await read($, pending)
     if (deferred) {
       await update($, compacting, () => true)
-      $.clock.after(1500, () => compactNow($, deferred, true))
+      $.clock.after(1500, () => compactNow($, deferred, { retry: true, resume: !deferred.startsWith('asked') }))
       return done
     }
     if (!(await isEnabled($))) return done
@@ -125,7 +135,7 @@ export const register: Register = on => {
     const limit = await getThreshold($)
     if (tokens === undefined || tokens < limit) return done
     await update($, compacting, () => true)
-    $.clock.after(1500, () => compactNow($, `context ${fmtTokens(tokens)} past ${fmtTokens(limit)}`))
+    $.clock.after(1500, () => compactNow($, `context ${fmtTokens(tokens)} past ${fmtTokens(limit)}`, { resume: true }))
     return done
   }).catch(($, e, next) => next(e))
 

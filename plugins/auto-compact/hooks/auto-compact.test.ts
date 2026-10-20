@@ -12,7 +12,7 @@ const MESSAGES = [
 function world(on: On, tokens: number) {
   const clock = mock.clock(on)
   mock.store(on)
-  const seen = { compacts: 0, writes: [] as { path: string; text: string }[], logs: [] as string[], runs: [] as string[][] }
+  const seen = { compacts: 0, writes: [] as { path: string; text: string }[], logs: [] as string[], runs: [] as string[][], prompts: [] as string[] }
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1_000_000, tokens }, rateLimits: [] } }) as never)
   on('session.id', () => ({ value: 'abcdef1234567890' }) as never)
   on('session.cwd', () => ({ value: '/home/test/proj' }) as never)
@@ -21,6 +21,7 @@ function world(on: On, tokens: number) {
   on('ui.log', (_$, e: any) => { seen.logs.push(e.text); return { value: undefined } as never })
   on('process.run', (_$, e: any) => { seen.runs.push(e.argv ?? e.command ?? e.args ?? e); return { value: { exitCode: 0, stdout: '', stderr: '' } } as never })
   on('ui.toast', () => ({ value: undefined }) as never)
+  on('prompt.submit', (_$, e: any) => { seen.prompts.push(e.text); return { text: e.text } as never })
   on('turn.complete', (_$, e: any) => ({ text: e.answer }) as never)
   on('session.messages', () => ({ value: MESSAGES }) as never)
   // busy: how many compactions to reject as if a turn were running.
@@ -109,6 +110,31 @@ test('its own compaction (past the threshold) saves the transcript first', async
   const save = seen.writes.find(w => w.path.includes('/compact-saves/'))
   expect(save?.path).toMatch(/_abcdef12_plugin\.md$/)
   expect(save?.text).toMatch(/Fix the export/)
+})
+
+test('after its own compaction it tells the session to carry on', async ($, on) => {
+  const { clock, seen } = world(on, 260_000)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(seen.compacts).toBe(1)
+  expect(seen.prompts.length).toBe(1)
+  expect(seen.prompts[0]).toMatch(/Continue from where you left off/)
+})
+
+test('a threshold compaction retried after a running turn still resumes; /autocompact now never does', async ($, on) => {
+  const { clock, seen, state } = world(on, 260_000)
+  state.busy = 1
+  await endTurn($)
+  await clock.advance(2000)
+  expect(seen.prompts.length).toBe(0)
+  await endTurn($)
+  await clock.advance(2000)
+  expect(seen.compacts).toBe(1)
+  expect(seen.prompts.length).toBe(1)
+  await $.command.run({ command: 'autocompact', args: 'now' } as never)
+  await clock.advance(1000)
+  expect(seen.compacts).toBe(2)
+  expect(seen.prompts.length).toBe(1)
 })
 
 test('/autocompact now saves and compacts', async ($, on) => {
