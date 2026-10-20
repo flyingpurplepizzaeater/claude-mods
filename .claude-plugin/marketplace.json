@@ -3,7 +3,7 @@
   "owner": {
     "name": "flyingpurplepizzaeater"
   },
-  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, auto compact, prompt upgrade and a searchable memory database",
+  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, auto compact, prompt upgrade, a searchable memory database, plus cache-tax and reflect-mod",
   "plugins": [
     {
       "name": "agent-dashboard",
@@ -34,6 +34,16 @@
       "name": "auto-compact",
       "source": "./plugins/auto-compact",
       "description": "Compacts past 250k tokens and saves the full transcript to ~/.claude/compact-saves before every compaction (/autocompact)"
+    },
+    {
+      "name": "cache-tax",
+      "source": "./plugins/cache-tax",
+      "description": "Keeps the one-hour prompt cache warm during breaks (/keepwarm) and stops a cold send once with its rewrite cost (/cache-tax). By Karan Bansal, MIT; patched here"
+    },
+    {
+      "name": "reflect-mod",
+      "source": "./plugins/reflect-mod",
+      "description": "Spots reusable corrections in your prompts and saves them to CLAUDE.md on one press. By Bayram Annakov (claude-reflect), MIT"
     }
   ]
 }

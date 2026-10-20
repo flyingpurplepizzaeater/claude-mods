@@ -10,12 +10,27 @@ A small collection of Claude Code mods (plugins that hook into the session). Ins
 | [build-trimmer](#build-trimmer) | Trims long `xcodebuild` / `swift build` output so it does not fill your context |
 | [prompt-upgrade](#prompt-upgrade) | `/improve` rewrites a rough prompt into a clear one |
 | [memdb](#memdb) | A searchable memory database Claude can query and add to |
+| [cache-tax](#cache-tax) | Keeps the prompt cache warm during breaks and stops a cold send once with its price (third-party, MIT) |
+| [reflect-mod](#reflect-mod) | Turns your corrections into CLAUDE.md rules, saved with one press (third-party, MIT) |
 
 ## Requirements
 
 - A Claude Code version that supports mods. Tested on **2.1.299**.
 - Python 3.8 or newer for `memdb` (it also needs SQLite with FTS5, which most Python builds have) and for `build-trimmer`'s `xctrim.py`.
 - `build-trimmer` is for Apple development (Xcode / SwiftPM). `agent-dashboard` and `auto-handover` work best in the desktop app, where panes and new sessions are available.
+
+## Set up a new machine
+
+To get every mod and the settings this repo is used with (auto-compact at 200k, the built-in auto-compact at the same size), clone it and run the setup script:
+
+```
+git clone https://github.com/flyingpurplepizzaeater/claude-mods.git
+cd claude-mods && ./setup.sh
+```
+
+It copies each mod to `~/.claude/mods/<mod>` and adds three keys to the `env` of `~/.claude/settings.json`: `CLAUDE_CODE_PLUGIN_DIRS` (the mods, kept alongside any plugin folders already listed), `AUTO_COMPACT_THRESHOLD` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. Nothing else in the file changes, and the old one is kept as `settings.json.bak`. Name mods to install only those (`./setup.sh memdb cache-tax`), set `AUTO_COMPACT_THRESHOLD=300k` before it for another size, and run it again after `git pull` to update. New sessions load the mods. It needs `rsync` and `python3`, and follows `CLAUDE_CONFIG_DIR` if you set it.
+
+Use either this or the marketplace install below for a mod, not both, or its hooks run twice.
 
 ## Install
 
@@ -135,6 +150,16 @@ python3 plugins/memdb/bin/memdb.py add staging-port "It is 5433" -d "staging DB 
 
 `MEMDB_PATH` overrides the database location.
 
+### cache-tax
+
+[cache-tax](https://github.com/karanb192/cache-tax) by Karan Bansal (MIT), copied here at upstream commit `432a08d` (2.3.0) so it installs with the rest. `/keepwarm` keeps the one-hour prompt cache warm through a break by sending a tiny ping 50 minutes after the last request; `/keepwarm always` does that for every session, for up to six hours after each turn. When the cache has gone cold, it stops the first send once and shows what the rewrite will cost. `/cache-tax` shows the cache state and prices. See [its README](plugins/cache-tax/README.md).
+
+One change from upstream: after a compaction in the middle of a turn (the built-in auto-compact), it starts pinging again as soon as the next request comes back, rather than when the turn ends. Without it, a long autonomous turn that compacted and then sat at a permission prompt or a question went cold. Two tests at the end of `tests/register.test.ts` cover it.
+
+### reflect-mod
+
+reflect-mod from [claude-reflect](https://github.com/bayramannakov/claude-reflect) by Bayram Annakov (MIT), copied unchanged at upstream commit `b6c4232` (3.3.0). After a short prompt that corrects Claude, a model check decides whether it is a reusable rule; if so, a band above the prompt offers to save it to CLAUDE.md with one press. See [its README](plugins/reflect-mod/README.md).
+
 ## Change options, update, uninstall
 
 - Change options: `/config` in a terminal session (each mod's options are rows there), or reinstall and answer the options screen.
@@ -142,13 +167,6 @@ python3 plugins/memdb/bin/memdb.py add staging-port "It is 5433" -d "staging DB 
 - Turn off without removing: `claude plugin disable <mod>`; turn back on with `claude plugin enable <mod>`.
 - Uninstall: `claude plugin uninstall <mod>`. To drop the marketplace too: `claude plugin marketplace remove claude-mods`.
 - memdb keeps its database in `~/.claude/memdb/`; delete that folder if you want the data gone. auto-handover notes stay in `~/.claude/handovers/`, auto-compact saves in `~/.claude/compact-saves/` and build-trimmer logs in `~/.claude/build-trimmer/logs/`.
-
-## Other mods worth adding
-
-These are not part of this repo; they are third-party and live in their own repositories:
-
-- [cache-tax](https://github.com/karanb192/cache-tax) by karanb192: keeps the one-hour prompt cache warm during breaks and warns once before a cold send.
-- [claude-reflect](https://github.com/BayramAnnakov/claude-reflect) by BayramAnnakov: learns from your corrections and turns them into lasting memory.
 
 ## Develop
 
