@@ -2,6 +2,8 @@ import type { Todo, TodoStatus } from '../types'
 
 // The desktop app's task list tool; TodoWrite and TaskCreate/TaskUpdate are the terminal's.
 export const PLAN_TOOL = 'mcp__ccd_turn__update_plan'
+// Ending the turn checks off the step still in progress; no update_plan call does it.
+export const WRAP_UP_TOOL = 'mcp__ccd_turn__wrap_up'
 
 export const asStatus = (s: unknown): TodoStatus =>
   s === 'in_progress' || s === 'completed' ? s : 'pending'
@@ -35,6 +37,11 @@ export function applyPlan(list: Todo[], args: Record<string, unknown>): Todo[] {
 // The task list after one tool call, or undefined when the call doesn't touch it.
 export function nextTodos(list: Todo[], tool: string, args: Record<string, unknown>, result: unknown): Todo[] | undefined {
   if (tool === PLAN_TOOL) return applyPlan(list, args)
+  if (tool === WRAP_UP_TOOL) {
+    return list.some(t => t.status === 'in_progress')
+      ? list.map(t => (t.status === 'in_progress' ? { ...t, status: 'completed' } : t))
+      : undefined
+  }
   if (tool === 'TodoWrite' && Array.isArray(args.todos)) {
     return (args.todos as any[]).map((t, i) => ({ id: `w${i}`, text: String(t?.content ?? ''), status: asStatus(t?.status) }))
   }

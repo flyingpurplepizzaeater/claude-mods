@@ -3,7 +3,7 @@ import type { Engine, Register } from 'claude-code'
 
 import type { SessionRow, SubagentRow, TestRun, UsageRow } from '../types'
 import { nextTodos } from './tasks'
-import { BUILD_NOTE, POLL_LIMIT, POLL_MS, TEST_COMMAND, isLongForeground, judge } from './tests'
+import { BUILD_NOTE, POLL_LIMIT, POLL_MS, TEST_COMMAND, isLongForeground, judge, testLabel } from './tests'
 import { CONTEXT_ADVICE, contextLevel } from './context'
 
 // Kept in this file: the engine follows $ only into functions declared in the same module.
@@ -126,8 +126,8 @@ async function refresh($: Engine) {
 async function recordTest($: Engine, run: TestRun, toast: boolean) {
   await update($, testLast, () => run)
   if (run.verdict !== 'running') await update($, testHistory, list => [...list, run].slice(-8))
-  $.ui.status(`tests ${mark(run.verdict)} ${run.summary} · ${clock(run.at)}`)
-  if (toast && run.verdict === 'failed') $.ui.toast(`Tests failed: ${run.summary}`)
+  $.ui.status(`tests ${mark(run.verdict)} ${run.summary}`)
+  if (toast && run.verdict === 'failed') $.ui.toast(`Tests failed: ${run.summary} (${run.command})`)
 }
 
 export const register: Register = (on, options) => {
@@ -188,10 +188,10 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     if (ran.deny !== undefined || !TEST_COMMAND.test(e.command)) return ran
 
-    const command = e.command.slice(0, 80)
+    const command = testLabel(e.command)
     const result = ran.result
     if (result.backgroundTaskId) {
-      await recordTest($, { command, verdict: 'running', summary: 'running in background', at: await $.clock.now() }, false)
+      await recordTest($, { command, verdict: 'running', summary: 'running', at: await $.clock.now() }, false)
       const path = await findTaskOutput($, result.backgroundTaskId)
       if (path === undefined) return ran
       let polls = 0
@@ -201,7 +201,7 @@ export const register: Register = (on, options) => {
           const verdict = judge(await $.fs.read(path))
           if (verdict || polls > POLL_LIMIT) {
             timer.cancel()
-            await recordTest($, { command, verdict: verdict?.verdict ?? 'unknown', summary: verdict?.summary ?? 'no verdict found', at: await $.clock.now() }, true)
+            await recordTest($, { command, verdict: verdict?.verdict ?? 'unknown', summary: verdict?.summary ?? 'no result found', at: await $.clock.now() }, true)
           }
         })().catch(() => undefined)
       })
@@ -209,7 +209,7 @@ export const register: Register = (on, options) => {
     }
 
     const out = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
-    const verdict = judge(out) ?? (ran.isError ? { verdict: 'failed' as const, summary: 'exited with an error' } : { verdict: 'unknown' as const, summary: 'finished, no verdict found' })
+    const verdict = judge(out) ?? (ran.isError ? { verdict: 'failed' as const, summary: 'exited with an error' } : { verdict: 'unknown' as const, summary: 'no result found' })
     await recordTest($, { command, verdict: verdict.verdict, summary: verdict.summary, at: await $.clock.now() }, true)
 
     return ran
@@ -302,11 +302,11 @@ export const register: Register = (on, options) => {
         <Text bold>Tests</Text>
         {current === null && <Text dimColor>No test runs in this session yet.</Text>}
         {current?.verdict === 'running' && (
-          <Text color="yellow">… running in background since {clock(current.at)} · {current.command}</Text>
+          <Text color="yellow">… running since {clock(current.at)}  {current.command}</Text>
         )}
         {runs.map((run, i) => (
           <Text key={`r${run.at}-${i}`} color={run.verdict === 'passed' ? 'green' : run.verdict === 'failed' ? 'red' : 'yellow'} dimColor={i > 0}>
-            {mark(run.verdict)} {run.summary} · {clock(run.at)} · {run.command}
+            {mark(run.verdict)} {run.summary.padEnd(14)} {clock(run.at)}  {run.command}
           </Text>
         ))}
 

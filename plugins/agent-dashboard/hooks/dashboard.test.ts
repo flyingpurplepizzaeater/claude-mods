@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import { judge } from './tests'
 
 test('a finished subagent shows as done in the pane', async ($, on) => {
   mock.clock(on)
@@ -51,6 +52,20 @@ test('Tasks section follows update_plan items, advance and done', async ($, on) 
   expect(await ui.find({ type: 'Text', text: /Tasks \(3\/3 done\)/ })).toBeDefined()
 })
 
+test('wrap_up checks off the last step', async ($, on) => {
+  mock.clock(on)
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: PLAN, items: [
+    { content: 'Fix it', status: 'completed' },
+    { content: 'Test it', status: 'in_progress' },
+  ] } as never)
+  await $.tool.call({ tool: 'mcp__ccd_turn__wrap_up', recap: 'done' } as never)
+
+  const ui = await mountPane($)
+  expect(await ui.find({ type: 'Text', text: /Tasks \(2\/2 done\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '☑ Test it' })).toBeDefined()
+})
+
 test('Tasks section follows TodoWrite', async ($, on) => {
   mock.clock(on)
   on('tool.call', () => ({ result: {} }))
@@ -75,7 +90,7 @@ test('Tests section shows a passing xcodebuild run', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'xcodebuild -scheme App test | xcbeautify' } as never)
 
   const ui = await mountPane($)
-  expect(await ui.find({ type: 'Text', text: /✓ 42 tests, 0 failed/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /✓ 42 passed\s+\d\d:\d\d  xcodebuild -scheme App test$/ })).toBeDefined()
 })
 
 test('a failed swift test toasts and shows a fail', async ($, on) => {
@@ -87,7 +102,7 @@ test('a failed swift test toasts and shows a fail', async ($, on) => {
   await $.tool.call({ tool: 'Bash', command: 'swift test' } as never)
 
   const ui = await mountPane($)
-  expect(await ui.find({ type: 'Text', text: /✗ 5 tests, 2 failed/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /✗ 2 of 5 failed/ })).toBeDefined()
   expect(toast.length).toBe(1)
 })
 
@@ -214,4 +229,23 @@ test('with buildReminder on, background builds, quick xcodebuild queries and ord
     const out = await $.tool.call({ tool: 'Bash', ...input } as never)
     expect(((out as any).context ?? []).some((c: string) => NUDGE.test(c))).toBe(false)
   }
+})
+
+test('a plugin test run behind cd and a long path reads as counts and a short label', async ($, on) => {
+  mock.clock(on)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('tool.call', () => bash('(pass) one [1ms]\n\n 13 pass\n 0 fail\nRan 13 tests across 1 file. [0.77s]'))
+  await $.tool.call({ tool: 'Bash', command: 'cd /tmp/claude-1000/-home-x/abc/scratchpad/claude-mods/plugins/agent-dashboard && /home/me/.config/Claude/claude-code/2.1.299/20ca/claude plugin test . 2>&1 | tail -15' } as never)
+
+  const ui = await mountPane($)
+  expect(await ui.find({ type: 'Text', text: /✓ 13 passed\s+\d\d:\d\d  claude plugin test \. in agent-dashboard$/ })).toBeDefined()
+})
+
+test('judge reads pytest, unittest, cargo and jest counts the same way', async () => {
+  expect(judge('===== 1 failed, 9 passed in 0.3s =====')).toEqual({ verdict: 'failed', summary: '1 of 10 failed' })
+  expect(judge('Ran 10 tests in 0.2s\n\nOK')).toEqual({ verdict: 'passed', summary: '10 passed' })
+  expect(judge('Ran 10 tests in 0.2s\n\nFAILED (failures=2)')).toEqual({ verdict: 'failed', summary: '2 of 10 failed' })
+  expect(judge('test result: ok. 7 passed; 0 failed; 0 ignored')).toEqual({ verdict: 'passed', summary: '7 passed' })
+  expect(judge('Tests:       1 failed, 4 passed, 5 total')).toEqual({ verdict: 'failed', summary: '1 of 5 failed' })
+  expect(judge('still running')).toBeUndefined()
 })
