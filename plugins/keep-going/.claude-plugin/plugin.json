@@ -1,0 +1,5 @@
+{
+  "name": "keep-going",
+  "version": "1.0.0",
+  "description": "Stops Claude ending a turn on a vague 'want me to…?': it either keeps working or asks with clickable options"
+}

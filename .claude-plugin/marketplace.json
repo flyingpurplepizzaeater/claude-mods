@@ -3,7 +3,7 @@
   "owner": {
     "name": "flyingpurplepizzaeater"
   },
-  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, auto compact, prompt upgrade, a searchable memory database, plus cache-tax and reflect-mod",
+  "description": "Claude Code mods: agent dashboard, auto handover, build output trimmer, auto compact, prompt upgrade, keep-going, a searchable memory database, plus cache-tax and reflect-mod",
   "plugins": [
     {
       "name": "agent-dashboard",
@@ -44,6 +44,11 @@
       "name": "reflect-mod",
       "source": "./plugins/reflect-mod",
       "description": "Spots reusable corrections in your prompts and saves them to CLAUDE.md on one press. By Bayram Annakov (claude-reflect), MIT"
+    },
+    {
+      "name": "keep-going",
+      "source": "./plugins/keep-going",
+      "description": "Stops Claude ending a turn on a vague \"want me to…?\": it keeps working or asks with clickable options"
     }
   ]
 }

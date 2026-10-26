@@ -9,6 +9,7 @@ A small collection of Claude Code mods (plugins that hook into the session). Ins
 | [auto-compact](#auto-compact) | Compacts past 250k tokens and saves the full transcript before every compaction |
 | [build-trimmer](#build-trimmer) | Trims long `xcodebuild` / `swift build` output so it does not fill your context |
 | [prompt-upgrade](#prompt-upgrade) | `/improve` rewrites a rough prompt into a clear one |
+| [keep-going](#keep-going) | Stops Claude ending a turn on a vague "want me to…?": it keeps working or asks with options |
 | [memdb](#memdb) | A searchable memory database Claude can query and add to |
 | [cache-tax](#cache-tax) | Keeps the prompt cache warm during breaks and stops a cold send once with its price (third-party, MIT) |
 | [reflect-mod](#reflect-mod) | Turns your corrections into CLAUDE.md rules, saved with one press (third-party, MIT) |
@@ -119,6 +120,10 @@ A command that already sets `DEVELOPER_DIR` is never changed. If `python3` is mi
 ### prompt-upgrade
 
 `/improve <rough prompt>` rewrites a rough prompt into a clear, specific one, using what the session already knows about your project, and puts it in the prompt box so you can review and edit it. Run `/improve send` to submit the last one. It keeps your intent and does not add goals you did not ask for. No options.
+
+### keep-going
+
+When Claude ends a turn by handing the next move back in plain text ("Want me to…?", "Should I…?", "Let me know if…"), the mod blocks that stop once and tells Claude to either keep working, routing around anything blocked, or ask properly with AskUserQuestion (2–4 options, recommendation first). A turn that already asked with AskUserQuestion, plan approval or the desktop app's wrap-up buttons is let through, and so is the second stop in a row, so it never loops. Safety confirmations (push, send, delete) still get asked, as options. The phrases it looks for are in `hooks/check.ts`. No options.
 
 ### memdb
 
